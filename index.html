@@ -3,72 +3,138 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>Productivity Hub</title>
+<title>Harmony DJ</title>
 
 <link rel="stylesheet" href="style.css">
-
 </head>
 
 <body>
 
-<header class="topbar">
-    <h1>Productivity Hub</h1>
+<header>
+    <h1>Harmony DJ</h1>
+    <p>Smart Harmonic Mixing Assistant</p>
 </header>
 
-<main>
+<section class="card">
+<h2>Ajouter un morceau</h2>
 
-<div class="card">
-    <h2>🗓 Agenda</h2>
-    <input id="taskInput" placeholder="Nouvelle tâche...">
-    <button onclick="addTask()">Ajouter</button>
-    <ul id="taskList"></ul>
-</div>
+<input id="title" placeholder="Titre">
+<input id="bpm" type="number" placeholder="BPM">
+<input id="key" placeholder="Clé (ex: Am, C, G...)">
 
-<div class="card">
-    <h2>📝 Notes rapides</h2>
-    <textarea placeholder="Écris quelque chose..."></textarea>
-</div>
+<button onclick="addTrack()">Ajouter</button>
+</section>
 
-<div class="card focus">
-    <h2>⏱ Focus</h2>
-    <p id="timer">25:00</p>
-    <button onclick="startTimer()">Démarrer</button>
-</div>
+<section class="card">
+<h2>Morceau actuel</h2>
+<select id="currentTrack" onchange="suggestNext()"></select>
+</section>
 
-</main>
+<section class="card">
+<h2>Suggestions harmonieuses</h2>
+<ul id="suggestions"></ul>
+</section>
 
 <script>
-let tasks = [];
 
-function addTask(){
-    const input = document.getElementById("taskInput");
-    if(input.value === "") return;
+let tracks=[];
 
-    tasks.push(input.value);
-    input.value="";
+const camelotMap={
+ "Am":"8A","C":"8B",
+ "Em":"9A","G":"9B",
+ "Bm":"10A","D":"10B",
+ "F#m":"11A","A":"11B",
+ "C#m":"12A","E":"12B",
+ "G#m":"1A","B":"1B",
+ "D#m":"2A","F#":"2B",
+ "A#m":"3A","C#":"3B",
+ "Fm":"4A","G#":"4B",
+ "Cm":"5A","D#":"5B",
+ "Gm":"6A","A#":"6B",
+ "Dm":"7A","F":"7B"
+};
 
-    document.getElementById("taskList").innerHTML =
-        tasks.map(t => `<li>${t}</li>`).join("");
+function addTrack(){
+    const title=document.getElementById("title").value;
+    const bpm=parseFloat(document.getElementById("bpm").value);
+    const key=document.getElementById("key").value.trim();
+
+    if(!camelotMap[key]) return alert("Clé inconnue");
+
+    tracks.push({
+        title,
+        bpm,
+        key,
+        camelot:camelotMap[key]
+    });
+
+    updateSelect();
 }
 
-let time = 1500;
-let running = false;
+function updateSelect(){
+    const select=document.getElementById("currentTrack");
+    select.innerHTML="";
 
-function startTimer(){
-    running = true;
-
-    setInterval(()=>{
-        if(!running || time<=0) return;
-
-        time--;
-        let m = Math.floor(time/60);
-        let s = time%60;
-
-        document.getElementById("timer").innerText =
-            `${m}:${s.toString().padStart(2,'0')}`;
-    },1000);
+    tracks.forEach((t,i)=>{
+        select.innerHTML+=`<option value="${i}">
+        ${t.title} — ${t.camelot} (${t.bpm} BPM)
+        </option>`;
+    });
 }
+
+function compatibleKeys(camelot){
+    let num=parseInt(camelot);
+    let letter=camelot.slice(-1);
+
+    let prev=num===1?12:num-1;
+    let next=num===12?1:num+1;
+
+    return [
+        camelot,
+        prev+letter,
+        next+letter,
+        num+(letter==="A"?"B":"A")
+    ];
+}
+
+function suggestNext(){
+    const index=document.getElementById("currentTrack").value;
+    const current=tracks[index];
+    if(!current) return;
+
+    const keys=compatibleKeys(current.camelot);
+
+    let scored=tracks
+    .filter(t=>t!==current)
+    .map(t=>{
+        let score=0;
+
+        // Harmonic compatibility
+        if(keys.includes(t.camelot)) score+=50;
+
+        // BPM proximity
+        let bpmDiff=Math.abs(t.bpm-current.bpm);
+        score+=Math.max(0,30-bpmDiff*3);
+
+        // Energy bonus (faster track)
+        if(t.bpm>=current.bpm) score+=10;
+
+        return {...t,score};
+    })
+    .sort((a,b)=>b.score-a.score);
+
+    const list=document.getElementById("suggestions");
+    list.innerHTML="";
+
+    scored.slice(0,5).forEach(t=>{
+        list.innerHTML+=`
+        <li>
+            <strong>${t.title}</strong>
+            <span>${t.camelot} • ${t.bpm} BPM</span>
+        </li>`;
+    });
+}
+
 </script>
 
 </body>
