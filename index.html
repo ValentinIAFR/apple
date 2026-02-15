@@ -14,11 +14,16 @@
 
     <input type="file" id="fileInput" multiple accept=".mp3">
 
+    <div class="buttons">
+        <button id="undoBtn">↩ Annuler</button>
+        <button id="resetBtn">🔄 Reset Set</button>
+    </div>
+
     <h2>Tracks analysés</h2>
     <ul id="trackList"></ul>
 
     <h2>Next Suggestion</h2>
-    <div id="suggestion">Aucun morceau sélectionné</div>
+    <div id="suggestion">Choisis le premier morceau</div>
 
     <h2>Historique du set</h2>
     <ul id="history"></ul>
@@ -29,6 +34,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
+let library = JSON.parse(localStorage.getItem("dj_library")) || [];
 let tracks = JSON.parse(localStorage.getItem("dj_tracks")) || [];
 let history = JSON.parse(localStorage.getItem("dj_history")) || [];
 let currentTrack = null;
@@ -37,103 +43,81 @@ const camelotWheel =
 ["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A"];
 
 
-/* ================= SAVE ================= */
+/* ========= SAVE ========= */
 
-function saveData(){
-    localStorage.setItem("dj_tracks", JSON.stringify(tracks));
-    localStorage.setItem("dj_history", JSON.stringify(history));
-    localStorage.setItem("dj_current",
-        currentTrack ? currentTrack.title : ""
-    );
+function save(){
+ localStorage.setItem("dj_library",JSON.stringify(library));
+ localStorage.setItem("dj_tracks",JSON.stringify(tracks));
+ localStorage.setItem("dj_history",JSON.stringify(history));
 }
 
 
-/* ================= IMPORT ================= */
+/* ========= IMPORT ========= */
 
 document.getElementById("fileInput")
 .addEventListener("change", async e => {
 
  for(const file of e.target.files){
 
-    if(tracks.find(t=>t.title===file.name)) continue;
+    if(library.find(t=>t.title===file.name)) continue;
 
     const arrayBuffer = await file.arrayBuffer();
     const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
-    const bpm = detectBPM(audioBuffer);
-    const energy = detectEnergy(audioBuffer);
-    const key = detectKey(audioBuffer);
-
-    tracks.push({
+    const track={
         title:file.name,
-        bpm,
-        energy,
-        key
-    });
+        bpm:detectBPM(audioBuffer),
+        energy:detectEnergy(audioBuffer),
+        key:detectKey(audioBuffer)
+    };
+
+    library.push(track);
+    tracks.push(track);
  }
 
- autoEnergySort();
- saveData();
- renderTracks();
+ save();
+ renderAll();
 });
 
 
-/* ================= BPM ================= */
+/* ========= ANALYSE ========= */
 
 function detectBPM(buffer){
-
- const data = buffer.getChannelData(0);
- const sampleRate = buffer.sampleRate;
-
+ const data=buffer.getChannelData(0);
+ const sr=buffer.sampleRate;
  let peaks=[];
 
- for(let i=0;i<data.length;i+=1024){
-    if(data[i]>0.9) peaks.push(i);
- }
+ for(let i=0;i<data.length;i+=1024)
+   if(data[i]>0.9) peaks.push(i);
 
  let intervals={};
 
- peaks.forEach((peak,i)=>{
-   for(let j=1;j<10;j++){
-     if(peaks[i+j]){
-        let interval=peaks[i+j]-peak;
-        let tempo=60/(interval/sampleRate);
-
-        while(tempo<80) tempo*=2;
-        while(tempo>160) tempo/=2;
-
-        tempo=Math.round(tempo);
-        intervals[tempo]=(intervals[tempo]||0)+1;
-     }
-   }
+ peaks.forEach((p,i)=>{
+  for(let j=1;j<10;j++){
+    if(peaks[i+j]){
+      let tempo=60/((peaks[i+j]-p)/sr);
+      while(tempo<80) tempo*=2;
+      while(tempo>160) tempo/=2;
+      tempo=Math.round(tempo);
+      intervals[tempo]=(intervals[tempo]||0)+1;
+    }
+  }
  });
 
- let best=Object.entries(intervals)
-      .sort((a,b)=>b[1]-a[1])[0];
-
+ let best=Object.entries(intervals).sort((a,b)=>b[1]-a[1])[0];
  return best?parseInt(best[0]):120;
 }
-
-
-/* ================= ENERGY ================= */
 
 function detectEnergy(buffer){
  const data=buffer.getChannelData(0);
  let sum=0;
+ for(let i=0;i<data.length;i+=500)
+   sum+=Math.abs(data[i]);
 
- for(let i=0;i<data.length;i+=500){
-    sum+=Math.abs(data[i]);
- }
-
- let energy=(sum/(data.length/500))*100;
- return Math.min(100,Math.round(energy*3));
+ return Math.min(100,Math.round(sum/(data.length/500)*300));
 }
 
-
-/* ================= KEY ================= */
-
 function detectKey(buffer){
-
  const analyser=audioCtx.createAnalyser();
  analyser.fftSize=2048;
 
@@ -141,25 +125,20 @@ function detectKey(buffer){
  source.buffer=buffer;
  source.connect(analyser);
  analyser.connect(audioCtx.destination);
+ source.start();
 
- source.start(0);
-
- const freqData=new Uint8Array(analyser.frequencyBinCount);
- analyser.getByteFrequencyData(freqData);
+ const freq=new Uint8Array(analyser.frequencyBinCount);
+ analyser.getByteFrequencyData(freq);
 
  let max=0,index=0;
-
- freqData.forEach((v,i)=>{
-   if(v>max){max=v;index=i;}
- });
+ freq.forEach((v,i)=>{ if(v>max){max=v;index=i;} });
 
  source.stop();
-
  return camelotWheel[index%12];
 }
 
 
-/* ================= DJ LOGIC ================= */
+/* ========= DJ LOGIC ========= */
 
 function camelotDistance(a,b){
  const n1=parseInt(a);
@@ -167,45 +146,70 @@ function camelotDistance(a,b){
  return Math.min(Math.abs(n1-n2),12-Math.abs(n1-n2));
 }
 
-function transitionScore(track,target){
-
- const bpmDiff=Math.abs(track.bpm-target.bpm);
- const keyDiff=camelotDistance(track.key,target.key);
- const energyDiff=Math.abs(track.energy-target.energy);
-
- return bpmDiff + keyDiff*10 + energyDiff*0.6;
+function transitionScore(a,b){
+ return Math.abs(a.bpm-b.bpm)
+      + camelotDistance(a.key,b.key)*10
+      + Math.abs(a.energy-b.energy)*0.6;
 }
 
 
-/* ================= ENERGY ORDER ================= */
+/* ========= PLAY TRACK ========= */
 
-function autoEnergySort(){
-   tracks.sort((a,b)=>a.energy-b.energy);
+function playTrack(track){
+
+ currentTrack=track;
+
+ history.push(track);
+
+ /* SUPPRIME DES TRACKS ANALYSÉS */
+ tracks = tracks.filter(t=>t.title!==track.title);
+
+ save();
+ renderAll();
 }
 
 
-/* ================= RENDER ================= */
+/* ========= UNDO ========= */
+
+document.getElementById("undoBtn").onclick=()=>{
+
+ if(history.length===0) return;
+
+ const last=history.pop();
+ tracks.push(last);
+ currentTrack=null;
+
+ save();
+ renderAll();
+};
+
+
+/* ========= RESET ========= */
+
+document.getElementById("resetBtn").onclick=()=>{
+
+ tracks=[...library];
+ history=[];
+ currentTrack=null;
+
+ save();
+ renderAll();
+
+ document.getElementById("suggestion").innerHTML =
+   "Choisis le premier morceau";
+};
+
+
+/* ========= RENDER ========= */
 
 function renderTracks(){
 
  const list=document.getElementById("trackList");
  list.innerHTML="";
 
- let displayTracks=[...tracks];
-
- if(currentTrack){
-   displayTracks.sort((a,b)=>
-     transitionScore(a,currentTrack) -
-     transitionScore(b,currentTrack)
-   );
- }
-
- displayTracks.forEach(track=>{
+ tracks.forEach(track=>{
 
    const li=document.createElement("li");
-
-   if(currentTrack && track.title===currentTrack.title)
-      li.classList.add("current");
 
    li.innerHTML=`
      <div>
@@ -215,65 +219,36 @@ function renderTracks(){
      <div class="energy">${track.energy}</div>
    `;
 
-   li.onclick=()=>{
-      currentTrack=track;
-
-      if(!history.includes(track.title)){
-          history.push(track.title);
-      }
-
-      saveData();
-      renderTracks();
-      renderHistory();
-      updateSuggestion();
-   };
+   li.onclick=()=>playTrack(track);
 
    list.appendChild(li);
  });
 }
 
-
-/* ================= HISTORY ================= */
-
 function renderHistory(){
  const h=document.getElementById("history");
  h.innerHTML="";
- history.slice(-10).reverse().forEach(t=>{
-    const li=document.createElement("li");
-    li.textContent=t;
-    h.appendChild(li);
+ history.slice().reverse().forEach(t=>{
+   const li=document.createElement("li");
+   li.textContent=t.title;
+   h.appendChild(li);
  });
 }
 
-
-/* ================= SUGGESTION ================= */
-
 function updateSuggestion(){
 
- if(!currentTrack){
-    document.getElementById("suggestion").innerHTML =
-      "Choisis un morceau actuel";
-    return;
+ if(!currentTrack || tracks.length===0){
+   document.getElementById("suggestion").innerHTML =
+     "Choisis le premier morceau";
+   return;
  }
 
- /* EXCLUT LES MORCEAUX DEJA JOUÉS */
- const available = tracks.filter(t =>
-     t.title !== currentTrack.title &&
-     !history.includes(t.title)
- );
-
- if(available.length === 0){
-    document.getElementById("suggestion").innerHTML =
-      "✅ Tous les morceaux ont été joués";
-    return;
- }
-
- available.sort((a,b)=>
+ const sorted=[...tracks].sort((a,b)=>
    transitionScore(a,currentTrack) -
    transitionScore(b,currentTrack)
  );
 
- const best=available[0];
+ const best=sorted[0];
 
  document.getElementById("suggestion").innerHTML=
  `<strong>${best.title}</strong><br>
@@ -281,18 +256,13 @@ function updateSuggestion(){
  Energy ${best.energy}`;
 }
 
-
-/* ================= RESTORE ================= */
-
-const savedCurrent = localStorage.getItem("dj_current");
-
-if(savedCurrent){
-   currentTrack = tracks.find(t=>t.title===savedCurrent);
+function renderAll(){
+ renderTracks();
+ renderHistory();
+ updateSuggestion();
 }
 
-renderTracks();
-renderHistory();
-updateSuggestion();
+renderAll();
 
 });
 </script>
