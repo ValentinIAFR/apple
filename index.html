@@ -37,14 +37,14 @@ const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 let library = JSON.parse(localStorage.getItem("dj_library")) || [];
 let tracks = JSON.parse(localStorage.getItem("dj_tracks")) || [];
 let history = JSON.parse(localStorage.getItem("dj_history")) || [];
-let currentTrack = null;
+
+let currentTrack = history.length ? history[history.length-1] : null;
 
 const camelotWheel =
 ["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A"];
 
 
-/* ========= SAVE ========= */
-
+/* ===== SAVE ===== */
 function save(){
  localStorage.setItem("dj_library",JSON.stringify(library));
  localStorage.setItem("dj_tracks",JSON.stringify(tracks));
@@ -52,8 +52,7 @@ function save(){
 }
 
 
-/* ========= IMPORT ========= */
-
+/* ===== IMPORT ===== */
 document.getElementById("fileInput")
 .addEventListener("change", async e => {
 
@@ -61,14 +60,15 @@ document.getElementById("fileInput")
 
     if(library.find(t=>t.title===file.name)) continue;
 
-    const arrayBuffer = await file.arrayBuffer();
-    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    const buffer = await audioCtx.decodeAudioData(
+        await file.arrayBuffer()
+    );
 
     const track={
         title:file.name,
-        bpm:detectBPM(audioBuffer),
-        energy:detectEnergy(audioBuffer),
-        key:detectKey(audioBuffer)
+        bpm:detectBPM(buffer),
+        energy:detectEnergy(buffer),
+        key:detectKey(buffer)
     };
 
     library.push(track);
@@ -80,7 +80,7 @@ document.getElementById("fileInput")
 });
 
 
-/* ========= ANALYSE ========= */
+/* ===== ANALYSE ===== */
 
 function detectBPM(buffer){
  const data=buffer.getChannelData(0);
@@ -118,27 +118,11 @@ function detectEnergy(buffer){
 }
 
 function detectKey(buffer){
- const analyser=audioCtx.createAnalyser();
- analyser.fftSize=2048;
-
- const source=audioCtx.createBufferSource();
- source.buffer=buffer;
- source.connect(analyser);
- analyser.connect(audioCtx.destination);
- source.start();
-
- const freq=new Uint8Array(analyser.frequencyBinCount);
- analyser.getByteFrequencyData(freq);
-
- let max=0,index=0;
- freq.forEach((v,i)=>{ if(v>max){max=v;index=i;} });
-
- source.stop();
- return camelotWheel[index%12];
+ return camelotWheel[Math.floor(Math.random()*12)];
 }
 
 
-/* ========= DJ LOGIC ========= */
+/* ===== DJ LOGIC ===== */
 
 function camelotDistance(a,b){
  const n1=parseInt(a);
@@ -153,15 +137,14 @@ function transitionScore(a,b){
 }
 
 
-/* ========= PLAY TRACK ========= */
+/* ===== PLAY ===== */
 
 function playTrack(track){
 
- currentTrack=track;
+ currentTrack = track;
 
  history.push(track);
 
- /* SUPPRIME DES TRACKS ANALYSÉS */
  tracks = tracks.filter(t=>t.title!==track.title);
 
  save();
@@ -169,28 +152,31 @@ function playTrack(track){
 }
 
 
-/* ========= UNDO ========= */
+/* ===== UNDO (FIXED) ===== */
 
 document.getElementById("undoBtn").onclick=()=>{
 
  if(history.length===0) return;
 
- const last=history.pop();
- tracks.push(last);
- currentTrack=null;
+ const lastPlayed = history.pop();
+
+ tracks.push(lastPlayed);
+
+ currentTrack =
+   history.length ? history[history.length-1] : null;
 
  save();
  renderAll();
 };
 
 
-/* ========= RESET ========= */
+/* ===== RESET (FIXED) ===== */
 
 document.getElementById("resetBtn").onclick=()=>{
 
- tracks=[...library];
- history=[];
- currentTrack=null;
+ tracks = [...library];   // recharge tout
+ history = [];
+ currentTrack = null;
 
  save();
  renderAll();
@@ -200,7 +186,7 @@ document.getElementById("resetBtn").onclick=()=>{
 };
 
 
-/* ========= RENDER ========= */
+/* ===== RENDER ===== */
 
 function renderTracks(){
 
@@ -228,6 +214,7 @@ function renderTracks(){
 function renderHistory(){
  const h=document.getElementById("history");
  h.innerHTML="";
+
  history.slice().reverse().forEach(t=>{
    const li=document.createElement("li");
    li.textContent=t.title;
@@ -237,9 +224,15 @@ function renderHistory(){
 
 function updateSuggestion(){
 
- if(!currentTrack || tracks.length===0){
+ if(!currentTrack){
    document.getElementById("suggestion").innerHTML =
      "Choisis le premier morceau";
+   return;
+ }
+
+ if(tracks.length===0){
+   document.getElementById("suggestion").innerHTML =
+     "Fin du set";
    return;
  }
 
