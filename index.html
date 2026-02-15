@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Productivity Hub</title>
+
+<link rel="stylesheet" href="style.css">
+
+</head>
+
+<body>
+
+<header class="topbar">
+    <h1>Productivity Hub</h1>
+</header>
+
+<main>
+
+<div class="card">
+    <h2>🗓 Agenda</h2>
+    <input id="taskInput" placeholder="Nouvelle tâche...">
+    <button onclick="addTask()">Ajouter</button>
+    <ul id="taskList"></ul>
+</div>
+
+<div class="card">
+    <h2>📝 Notes rapides</h2>
+    <textarea placeholder="Écris quelque chose..."></textarea>
+</div>
+
+<div class="card focus">
+    <h2>⏱ Focus</h2>
+    <p id="timer">25:00</p>
+    <button onclick="startTimer()">Démarrer</button>
+</div>
+
+</main>
+
+<script>
+let tasks = [];
+
+function addTask(){
+    const input = document.getElementById("taskInput");
+    if(input.value === "") return;
+
+    tasks.push(input.value);
+    input.value="";
+
+    document.getElementById("taskList").innerHTML =
+        tasks.map(t => `<li>${t}</li>`).join("");
+}
+
+let time = 1500;
+let running = false;
+
+function startTimer(){
+    running = true;
+
+    setInterval(()=>{
+        if(!running || time<=0) return;
+
+        time--;
+        let m = Math.floor(time/60);
+        let s = time%60;
+
+        document.getElementById("timer").innerText =
+            `${m}:${s.toString().padStart(2,'0')}`;
+    },1000);
+}
+</script>
+
+</body>
+</html>
