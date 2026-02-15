@@ -2,95 +2,140 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Harmony DJ Pro</title>
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DJ Flow Assistant</title>
 <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
 
-<header>
-<h1>Harmony DJ</h1>
-<p>Analyse automatique MP3</p>
-</header>
+<div class="app">
 
-<section class="card">
-<h2>Importer tes morceaux</h2>
-<input type="file" id="audioInput" multiple accept="audio/*">
-<p class="info">Sélectionne plusieurs MP3</p>
-</section>
+<h1>DJ Flow Assistant</h1>
 
-<section class="card">
-<h2>Playlist analysée</h2>
-<ul id="playlist"></ul>
-</section>
+<input type="file" id="fileInput" multiple accept=".mp3">
+
+<h2>Morceaux importés</h2>
+<ul id="trackList"></ul>
+
+<h2>Suggestion suivante</h2>
+<div id="suggestion">Importe des morceaux...</div>
+
+</div>
 
 <script>
 
-const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+const tracks = [];
 
-const camelotMap={
-"C":"8B","Am":"8A","G":"9B","Em":"9A",
-"D":"10B","Bm":"10A","A":"11B","F#m":"11A",
-"E":"12B","C#m":"12A","B":"1B","G#m":"1A",
-"F#":"2B","D#m":"2A","C#":"3B","A#m":"3A",
-"G#":"4B","Fm":"4A","D#":"5B","Cm":"5A",
-"A#":"6B","Gm":"6A","F":"7B","Dm":"7A"
+const camelotMap = {
+ "C":"8B","Am":"8A",
+ "G":"9B","Em":"9A",
+ "D":"10B","Bm":"10A",
+ "A":"11B","F#m":"11A",
+ "E":"12B","C#m":"12A",
+ "B":"1B","G#m":"1A",
+ "F#":"2B","D#m":"2A",
+ "Db":"3B","Bbm":"3A",
+ "Ab":"4B","Fm":"4A",
+ "Eb":"5B","Cm":"5A",
+ "Bb":"6B","Gm":"6A",
+ "F":"7B","Dm":"7A"
 };
 
-document.getElementById("audioInput")
-.addEventListener("change", async function(e){
-
-const files=[...e.target.files];
-
-for(const file of files){
-
-    const arrayBuffer = await file.arrayBuffer();
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-    const bpm = estimateBPM(audioBuffer);
-    const key = estimateKey(audioBuffer);
-
-    addTrack(file.name,bpm,key);
+function normalizeBPM(bpm){
+    if(bpm < 70) bpm *= 2;
+    else if(bpm < 95) bpm *= 1.5;
+    else if(bpm > 155) bpm /= 2;
+    return Math.round(bpm);
 }
-});
 
-function estimateBPM(buffer){
+function normalizeKey(key){
+    const corrections = {
+        "G":"Em",
+        "C":"Am",
+        "D":"Bm",
+        "F":"Dm"
+    };
+    return corrections[key] || key;
+}
 
-    const data = buffer.getChannelData(0);
-    let peaks=[];
+document.getElementById("fileInput")
+.addEventListener("change", async e => {
 
-    for(let i=0;i<data.length;i+=10000){
-        peaks.push(Math.abs(data[i]));
+    for(const file of e.target.files){
+
+        const audio = new Audio(URL.createObjectURL(file));
+        await audio.play().catch(()=>{});
+        audio.pause();
+
+        // BPM simulé (analyse web limitée)
+        let bpm = 80 + Math.random()*60;
+        bpm = normalizeBPM(bpm);
+
+        const possibleKeys = ["Am","Em","Dm","F#m","G","C","Bm"];
+        let key = possibleKeys[Math.floor(Math.random()*possibleKeys.length)];
+        key = normalizeKey(key);
+
+        tracks.push({
+            title:file.name,
+            bpm,
+            key,
+            camelot: camelotMap[key] || "?"
+        });
     }
 
-    let avg = peaks.reduce((a,b)=>a+b)/peaks.length;
+    renderTracks();
+    suggestNext();
+});
 
-    return Math.round(60 + avg*120); // estimation simple
+function renderTracks(){
+
+    const list = document.getElementById("trackList");
+    list.innerHTML = "";
+
+    tracks.forEach(t=>{
+        const li = document.createElement("li");
+        li.innerHTML =
+            `<strong>${t.title}</strong>
+             <span>${t.bpm} BPM • ${t.key} • ${t.camelot}</span>`;
+        list.appendChild(li);
+    });
 }
 
-function estimateKey(buffer){
-
-    // estimation simplifiée (démo)
-    const keys=["Am","C","G","Em","Dm","F"];
-    return keys[Math.floor(Math.random()*keys.length)];
+function camelotDistance(a,b){
+    if(!a || !b) return 99;
+    const n1 = parseInt(a);
+    const n2 = parseInt(b);
+    return Math.min(Math.abs(n1-n2),12-Math.abs(n1-n2));
 }
 
-function addTrack(title,bpm,key){
+function suggestNext(){
 
-const camelot = camelotMap[key] || "?";
+    if(tracks.length < 2) return;
 
-document.getElementById("playlist").innerHTML+=`
-<li>
-<div>
-<strong>${title}</strong>
-<span>${bpm} BPM • ${key} • ${camelot}</span>
-</div>
-</li>`;
+    const current = tracks[tracks.length-1];
+
+    let best = null;
+    let bestScore = 999;
+
+    tracks.slice(0,-1).forEach(t=>{
+
+        const bpmDiff = Math.abs(t.bpm-current.bpm);
+        const keyDiff = camelotDistance(t.camelot,current.camelot);
+
+        const score = bpmDiff + keyDiff*10;
+
+        if(score < bestScore){
+            bestScore = score;
+            best = t;
+        }
+    });
+
+    document.getElementById("suggestion").innerHTML =
+        `<strong>${best.title}</strong><br>
+         ${best.bpm} BPM • ${best.key} • ${best.camelot}`;
 }
 
 </script>
-
 </body>
 </html>
